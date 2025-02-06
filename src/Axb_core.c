@@ -96,6 +96,17 @@ extern int SYTRS(char *uplo, int *n, int *nrhs, LM_REAL *a, int *lda, int *ipiv,
 #define AX_EQ_B_BK LM_ADD_PREFIX(Ax_eq_b_BK)
 #define AX_EQ_B_PLASMA_CHOL LM_ADD_PREFIX(Ax_eq_b_PLASMA_Chol)
 
+static _Bool overflow_mul_int(int x, int y, int *result)
+{
+#ifdef __GNUC__
+  return __builtin_mul_overflow(x, y, result);
+#else
+  long long mul = (long long)x * (long long)y;
+  *result = (int)mul;
+  return (long long)*result != mul;
+#endif
+}
+
 /*
  * This function returns the solution of Ax = b
  *
@@ -140,7 +151,8 @@ register LM_REAL sum;
 #endif /* LINSOLVERS_RETAIN_MEMORY */
    
     /* calculate required memory size */
-    a_sz=m*m;
+    if(m <= 0 || overflow_mul_int(m, m, &a_sz))
+      return 0;
     tau_sz=m;
     r_sz=m*m; /* only the upper triangular part really needed */
     if(!nb){
@@ -179,9 +191,9 @@ register LM_REAL sum;
     work=r+r_sz;
 
   /* store A (column major!) into a */
-	for(i=0; i<m; i++)
-		for(j=0; j<m; j++)
-			a[i+j*m]=A[i*m+j];
+  for(i=0; i<m; i++)
+    for(j=0; j<m; j++)
+      a[i+j*m]=A[i*m+j];
 
   /* QR decomposition of A */
   GEQRF((int *)&m, (int *)&m, a, (int *)&m, tau, work, (int *)&worksz, (int *)&info);
@@ -250,7 +262,7 @@ register LM_REAL sum;
   free(buf);
 #endif
 
-	return 1;
+  return 1;
 }
 
 /*
@@ -299,14 +311,16 @@ register LM_REAL sum;
 #endif /* LINSOLVERS_RETAIN_MEMORY */
    
     if(m<n){
-		  fprintf(stderr, RCAT("Normal equations require that the number of rows is greater than number of columns in ", AX_EQ_B_QRLS) "() [%d x %d]! -- try transposing\n", m, n);
-		  exit(1);
-	  }
+      fprintf(stderr, RCAT("Normal equations require that the number of rows is greater than number of columns in ", AX_EQ_B_QRLS) "() [%d x %d]! -- try transposing\n", m, n);
+      exit(1);
+    }
       
     /* calculate required memory size */
-    a_sz=m*n;
+    if(m <= 0 || n <= 0 || overflow_mul_int(m, n, &a_sz))
+      return 0;
     tau_sz=n;
-    r_sz=n*n;
+    if(overflow_mul_int(n, n, &r_sz))
+      return 0;
     if(!nb){
       LM_REAL tmp;
 
@@ -343,9 +357,9 @@ register LM_REAL sum;
     work=r+r_sz;
 
   /* store A (column major!) into a */
-	for(i=0; i<m; i++)
-		for(j=0; j<n; j++)
-			a[i+j*m]=A[i*n+j];
+  for(i=0; i<m; i++)
+    for(j=0; j<n; j++)
+      a[i+j*m]=A[i*n+j];
 
   /* compute A^T b in x */
   for(i=0; i<n; i++){
@@ -422,7 +436,7 @@ register LM_REAL sum;
   free(buf);
 #endif
 
-	return 1;
+  return 1;
 }
 
 /*
@@ -466,7 +480,8 @@ int info, nrhs=1;
 #endif /* LINSOLVERS_RETAIN_MEMORY */
    
     /* calculate required memory size */
-    a_sz=m*m;
+    if(m <= 0 || overflow_mul_int(m, m, &a_sz))
+      return 0;
     tot_sz=a_sz;
 
 #ifdef LINSOLVERS_RETAIN_MEMORY
@@ -566,7 +581,7 @@ int info, nrhs=1;
   free(buf);
 #endif
 
-	return 1;
+  return 1;
 }
 
 #ifdef HAVE_PLASMA
@@ -653,7 +668,8 @@ int info, nrhs=1;
     }
 
     /* calculate required memory size */
-    a_sz=m*m;
+    if(m <= 0 || overflow_mul_int(m, m, &a_sz))
+      return 0;
     tot_sz=a_sz;
 
 #ifdef LINSOLVERS_RETAIN_MEMORY
@@ -714,7 +730,7 @@ int info, nrhs=1;
   free(buf);
 #endif
 
-	return 1;
+  return 1;
 }
 #endif /* HAVE_PLASMA */
 
@@ -760,7 +776,8 @@ LM_REAL *a;
    
     /* calculate required memory size */
     ipiv_sz=m;
-    a_sz=m*m;
+    if(m <= 0 || overflow_mul_int(m, m, &a_sz))
+      return 0;
     tot_sz=a_sz*sizeof(LM_REAL) + ipiv_sz*sizeof(int); /* should be arranged in that order for proper doubles alignment */
 
 #ifdef LINSOLVERS_RETAIN_MEMORY
@@ -787,52 +804,52 @@ LM_REAL *a;
     ipiv=(int *)(a+a_sz);
 
     /* store A (column major!) into a and B into x */
-	  for(i=0; i<m; i++){
-		  for(j=0; j<m; j++)
+    for(i=0; i<m; i++){
+      for(j=0; j<m; j++)
         a[i+j*m]=A[i*m+j];
 
       x[i]=B[i];
     }
 
   /* LU decomposition for A */
-	GETRF((int *)&m, (int *)&m, a, (int *)&m, ipiv, (int *)&info);  
-	if(info!=0){
-		if(info<0){
+  GETRF((int *)&m, (int *)&m, a, (int *)&m, ipiv, (int *)&info);  
+  if(info!=0){
+    if(info<0){
       fprintf(stderr, RCAT(RCAT("argument %d of ", GETRF) " illegal in ", AX_EQ_B_LU) "()\n", -info);
-			exit(1);
-		}
-		else{
+      exit(1);
+    }
+    else{
       fprintf(stderr, RCAT(RCAT("singular matrix A for ", GETRF) " in ", AX_EQ_B_LU) "()\n");
 #ifndef LINSOLVERS_RETAIN_MEMORY
       free(buf);
 #endif
 
-			return 0;
-		}
-	}
+      return 0;
+    }
+  }
 
   /* solve the system with the computed LU */
   GETRS("N", (int *)&m, (int *)&nrhs, a, (int *)&m, ipiv, x, (int *)&m, (int *)&info);
-	if(info!=0){
-		if(info<0){
-			fprintf(stderr, RCAT(RCAT("argument %d of ", GETRS) " illegal in ", AX_EQ_B_LU) "()\n", -info);
-			exit(1);
-		}
-		else{
-			fprintf(stderr, RCAT(RCAT("unknown error for ", GETRS) " in ", AX_EQ_B_LU) "()\n");
+  if(info!=0){
+    if(info<0){
+      fprintf(stderr, RCAT(RCAT("argument %d of ", GETRS) " illegal in ", AX_EQ_B_LU) "()\n", -info);
+      exit(1);
+    }
+    else{
+      fprintf(stderr, RCAT(RCAT("unknown error for ", GETRS) " in ", AX_EQ_B_LU) "()\n");
 #ifndef LINSOLVERS_RETAIN_MEMORY
       free(buf);
 #endif
 
-			return 0;
-		}
-	}
+      return 0;
+    }
+  }
 
 #ifndef LINSOLVERS_RETAIN_MEMORY
   free(buf);
 #endif
 
-	return 1;
+  return 1;
 }
 
 /*
@@ -890,7 +907,8 @@ int info, rank, worksz, *iwork, iworksz;
   //worksz=m*(7*m+4); // min worksize for GESDD
 #endif
   iworksz=8*m;
-  a_sz=m*m;
+  if(m <= 0 || overflow_mul_int(m, m, &a_sz))
+    return 0;
   u_sz=m*m; s_sz=m; vt_sz=m*m;
 
   tot_sz=(a_sz + u_sz + s_sz + vt_sz + worksz)*sizeof(LM_REAL) + iworksz*sizeof(int); /* should be arranged in that order for proper doubles alignment */
@@ -957,7 +975,7 @@ int info, rank, worksz, *iwork, iworksz;
   }
 
   /* compute the pseudoinverse in a */
-	for(i=0; i<a_sz; i++) a[i]=0.0; /* initialize to zero */
+  for(i=0; i<a_sz; i++) a[i]=0.0; /* initialize to zero */
   for(rank=0, thresh=eps*s[0]; rank<m && s[rank]>thresh; rank++){
     one_over_denom=LM_CNST(1.0)/s[rank];
 
@@ -966,9 +984,9 @@ int info, rank, worksz, *iwork, iworksz;
         a[i*m+j]+=vt[rank+i*m]*u[j+rank*m]*one_over_denom;
   }
 
-	/* compute A^+ b in x */
-	for(i=0; i<m; i++){
-	  for(j=0, sum=0.0; j<m; j++)
+  /* compute A^+ b in x */
+  for(i=0; i<m; i++){
+    for(j=0, sum=0.0; j<m; j++)
       sum+=a[i*m+j]*B[j];
     x[i]=sum;
   }
@@ -977,7 +995,7 @@ int info, rank, worksz, *iwork, iworksz;
   free(buf);
 #endif
 
-	return 1;
+  return 1;
 }
 
 /*
@@ -1022,7 +1040,8 @@ int info, *ipiv, nrhs=1;
 
   /* calculate required memory size */
   ipiv_sz=m;
-  a_sz=m*m;
+  if(m <= 0 || overflow_mul_int(m, m, &a_sz))
+    return 0;
   if(!nb){
     LM_REAL tmp;
 
@@ -1064,34 +1083,34 @@ int info, *ipiv, nrhs=1;
   memcpy(x, B, m*sizeof(LM_REAL));
 
   /* LDLt factorization for A */
-	SYTRF("L", (int *)&m, a, (int *)&m, ipiv, work, (int *)&work_sz, (int *)&info);
-	if(info!=0){
-		if(info<0){
+  SYTRF("L", (int *)&m, a, (int *)&m, ipiv, work, (int *)&work_sz, (int *)&info);
+  if(info!=0){
+    if(info<0){
       fprintf(stderr, RCAT(RCAT("LAPACK error: illegal value for argument %d of ", SYTRF) " in ", AX_EQ_B_BK) "()\n", -info);
-			exit(1);
-		}
-		else{
+      exit(1);
+    }
+    else{
       fprintf(stderr, RCAT(RCAT("LAPACK error: singular block diagonal matrix D for", SYTRF) " in ", AX_EQ_B_BK)"() [D(%d, %d) is zero]\n", info, info);
 #ifndef LINSOLVERS_RETAIN_MEMORY
       free(buf);
 #endif
 
-			return 0;
-		}
-	}
+      return 0;
+    }
+  }
 
   /* solve the system with the computed factorization */
   SYTRS("L", (int *)&m, (int *)&nrhs, a, (int *)&m, ipiv, x, (int *)&m, (int *)&info);
   if(info<0){
     fprintf(stderr, RCAT(RCAT("LAPACK error: illegal value for argument %d of ", SYTRS) " in ", AX_EQ_B_BK) "()\n", -info);
     exit(1);
-	}
+  }
 
 #ifndef LINSOLVERS_RETAIN_MEMORY
   free(buf);
 #endif
 
-	return 1;
+  return 1;
 }
 
 /* undefine all. IT MUST REMAIN IN THIS POSITION IN FILE */
@@ -1161,7 +1180,8 @@ LM_REAL *a, *work, max, sum, tmp;
    
   /* calculate required memory size */
   idx_sz=m;
-  a_sz=m*m;
+  if(m <= 0 || overflow_mul_int(m, m, &a_sz))
+    return 0;
   work_sz=m;
   tot_sz=(a_sz+work_sz)*sizeof(LM_REAL) + idx_sz*sizeof(int); /* should be arranged in that order for proper doubles alignment */
 
@@ -1194,12 +1214,12 @@ LM_REAL *a, *work, max, sum, tmp;
   memcpy(x, B, m*sizeof(LM_REAL));
 
   /* compute the LU decomposition of a row permutation of matrix a; the permutation itself is saved in idx[] */
-	for(i=0; i<m; ++i){
-		max=0.0;
-		for(j=0; j<m; ++j)
-			if((tmp=FABS(a[i*m+j]))>max)
+  for(i=0; i<m; ++i){
+    max=0.0;
+    for(j=0; j<m; ++j)
+      if((tmp=FABS(a[i*m+j]))>max)
         max=tmp;
-		  if(max==0.0){
+      if(max==0.0){
         fprintf(stderr, RCAT("Singular matrix A in ", AX_EQ_B_LU) "()!\n");
 #ifndef LINSOLVERS_RETAIN_MEMORY
         free(buf);
@@ -1207,67 +1227,67 @@ LM_REAL *a, *work, max, sum, tmp;
 
         return 0;
       }
-		  work[i]=LM_CNST(1.0)/max;
-	}
+      work[i]=LM_CNST(1.0)/max;
+  }
 
-	for(j=0; j<m; ++j){
-		for(i=0; i<j; ++i){
-			sum=a[i*m+j];
-			for(k=0; k<i; ++k)
+  for(j=0; j<m; ++j){
+    for(i=0; i<j; ++i){
+      sum=a[i*m+j];
+      for(k=0; k<i; ++k)
         sum-=a[i*m+k]*a[k*m+j];
-			a[i*m+j]=sum;
-		}
-		max=0.0;
-		for(i=j; i<m; ++i){
-			sum=a[i*m+j];
-			for(k=0; k<j; ++k)
+      a[i*m+j]=sum;
+    }
+    max=0.0;
+    for(i=j; i<m; ++i){
+      sum=a[i*m+j];
+      for(k=0; k<j; ++k)
         sum-=a[i*m+k]*a[k*m+j];
-			a[i*m+j]=sum;
-			if((tmp=work[i]*FABS(sum))>=max){
-				max=tmp;
-				maxi=i;
-			}
-		}
-		if(j!=maxi){
-			for(k=0; k<m; ++k){
-				tmp=a[maxi*m+k];
-				a[maxi*m+k]=a[j*m+k];
-				a[j*m+k]=tmp;
-			}
-			work[maxi]=work[j];
-		}
-		idx[j]=maxi;
-		if(a[j*m+j]==0.0)
+      a[i*m+j]=sum;
+      if((tmp=work[i]*FABS(sum))>=max){
+        max=tmp;
+        maxi=i;
+      }
+    }
+    if(j!=maxi){
+      for(k=0; k<m; ++k){
+        tmp=a[maxi*m+k];
+        a[maxi*m+k]=a[j*m+k];
+        a[j*m+k]=tmp;
+      }
+      work[maxi]=work[j];
+    }
+    idx[j]=maxi;
+    if(a[j*m+j]==0.0)
       a[j*m+j]=LM_REAL_EPSILON;
-		if(j!=m-1){
-			tmp=LM_CNST(1.0)/(a[j*m+j]);
-			for(i=j+1; i<m; ++i)
+    if(j!=m-1){
+      tmp=LM_CNST(1.0)/(a[j*m+j]);
+      for(i=j+1; i<m; ++i)
         a[i*m+j]*=tmp;
-		}
-	}
+    }
+  }
 
   /* The decomposition has now replaced a. Solve the linear system using
    * forward and back substitution
    */
-	for(i=k=0; i<m; ++i){
-		j=idx[i];
-		sum=x[j];
-		x[j]=x[i];
-		if(k!=0)
-			for(j=k-1; j<i; ++j)
+  for(i=k=0; i<m; ++i){
+    j=idx[i];
+    sum=x[j];
+    x[j]=x[i];
+    if(k!=0)
+      for(j=k-1; j<i; ++j)
         sum-=a[i*m+j]*x[j];
-		else
+    else
       if(sum!=0.0)
-			  k=i+1;
-		x[i]=sum;
-	}
+        k=i+1;
+    x[i]=sum;
+  }
 
-	for(i=m-1; i>=0; --i){
-		sum=x[i];
-		for(j=i+1; j<m; ++j)
+  for(i=m-1; i>=0; --i){
+    sum=x[i];
+    for(j=i+1; j<m; ++j)
       sum-=a[i*m+j]*x[j];
-		x[i]=sum/a[i*m+i];
-	}
+    x[i]=sum/a[i*m+i];
+  }
 
 #ifndef LINSOLVERS_RETAIN_MEMORY
   free(buf);

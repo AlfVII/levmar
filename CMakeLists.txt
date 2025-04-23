@@ -1,7 +1,7 @@
 # levmar CMake file; see http://www.cmake.org and 
 #                        http://www.insightsoftwareconsortium.org/wiki/index.php/CMake_Tutorial
 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.6)
 PROJECT(LEVMAR)
 
 SET(HAVE_LAPACK 0 CACHE BOOL "Do we have LAPACK/BLAS?")
